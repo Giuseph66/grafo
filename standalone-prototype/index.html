@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CityGraph Explorer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="ambient ambient-a"></div>
+      <div class="ambient ambient-b"></div>
+
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Visual Search Graph</p>
+          <h1>CityGraph Explorer</h1>
+          <p class="hero-copy">
+            Grafo interativo de cidades brasileiras com busca visual em tempo real e demonstração passo a passo de BFS e DFS.
+          </p>
+        </div>
+        <div class="hero-badges">
+          <span>9 cidades conectadas</span>
+          <span>Busca animada</span>
+          <span>BFS + DFS comparativos</span>
+        </div>
+      </header>
+
+      <section class="overview-strip">
+        <article class="overview-card">
+          <p class="panel-kicker">Busca</p>
+          <strong>Inspeção nó a nó</strong>
+          <span>Enquanto você digita, o sistema percorre visualmente o grafo e marca os matches.</span>
+        </article>
+        <article class="overview-card">
+          <p class="panel-kicker">Exploração</p>
+          <strong>Grafo completo na tela</strong>
+          <span>Todas as cidades aparecem desde o início, com conexões prontas para demonstração.</span>
+        </article>
+        <article class="overview-card">
+          <p class="panel-kicker">Algoritmos</p>
+          <strong>BFS x DFS</strong>
+          <span>Execute os dois a partir da cidade selecionada e compare cobertura, ordem e profundidade.</span>
+        </article>
+      </section>
+
+      <main class="layout">
+        <section class="workspace">
+          <section class="panel topbar">
+            <div class="search-row single">
+              <div class="search-box large">
+                <input id="searchInput" type="text" placeholder="Digite uma cidade: Cuiaba, Brasilia, Curitiba..." />
+                <button id="clearButton" class="ghost">Limpar</button>
+              </div>
+            </div>
+            <div class="search-status-row">
+              <div id="searchInspector" class="inspector-card"></div>
+              <div id="searchMatches" class="matches-card"></div>
+            </div>
+          </section>
+
+          <section class="panel controls">
+            <label><input id="bfsToggle" type="checkbox" checked /> BFS</label>
+            <label><input id="dfsToggle" type="checkbox" checked /> DFS</label>
+            <label>
+              Profundidade
+              <input id="depthInput" type="range" min="1" max="5" value="3" />
+              <span id="depthValue">3</span>
+            </label>
+            <label>
+              Max. cidades
+              <input id="nodesInput" type="range" min="5" max="20" value="12" />
+              <span id="nodesValue">12</span>
+            </label>
+            <button id="runButton" class="action">Executar Percurso</button>
+            <button id="animateButton" class="action alt">Iniciar animação</button>
+            <button id="prevStepButton" class="ghost">Passo anterior</button>
+            <button id="nextStepButton" class="ghost">Próximo passo</button>
+            <button id="resetPlaybackButton" class="ghost">Reiniciar</button>
+            <label class="mode-switch">
+              Foco
+              <select id="focusMode">
+                <option value="sync">Sincronizado</option>
+                <option value="bfs">BFS</option>
+                <option value="dfs">DFS</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="graphs-grid">
+            <article class="panel graph-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Grafo</p>
+                  <h2>Malha de cidades</h2>
+                </div>
+                <div class="legend">
+                  <span class="legend-item city">Cidade</span>
+                  <span class="legend-item root">Raiz</span>
+                  <span class="legend-item match">Busca</span>
+                </div>
+              </div>
+              <div id="graphArea" class="graph-area"></div>
+            </article>
+
+            <article class="panel graph-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Timeline</p>
+                  <h2>Busca e travessia</h2>
+                </div>
+                <div class="legend">
+                  <span class="legend-item bfs-glow">BFS</span>
+                  <span class="legend-item dfs-glow">DFS</span>
+                </div>
+              </div>
+              <div class="timeline-progress">
+                <div class="progress-track search-track"><span id="searchProgressBar"></span></div>
+                <div class="progress-track bfs-track"><span id="bfsProgressBar"></span></div>
+                <div class="progress-track dfs-track"><span id="dfsProgressBar"></span></div>
+              </div>
+              <div id="stepDetails" class="step-details"></div>
+              <div id="traversalArea" class="traversal-area"></div>
+            </article>
+          </section>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel metrics-card">
+            <p class="panel-kicker">Cidade raiz</p>
+            <h3 id="rootCityTitle">Cuiaba</h3>
+            <div id="rootCityCard" class="metrics-grid"></div>
+          </section>
+
+          <section class="panel metrics-card">
+            <p class="panel-kicker">BFS</p>
+            <h3>Busca em Largura</h3>
+            <div id="bfsMetrics" class="metrics-grid"></div>
+          </section>
+
+          <section class="panel metrics-card">
+            <p class="panel-kicker dfs-text">DFS</p>
+            <h3>Busca em Profundidade</h3>
+            <div id="dfsMetrics" class="metrics-grid"></div>
+          </section>
+
+          <section class="panel metrics-card">
+            <p class="panel-kicker">Comparativo</p>
+            <h3>BFS x DFS</h3>
+            <div id="comparisonMetrics" class="comparison-stack"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
