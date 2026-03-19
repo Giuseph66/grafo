@@ -26,6 +26,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background-color: #080914;
+  overflow-x: hidden;
+}
+
+body.explorer-graph-fullscreen {
+  overflow: hidden;
 }
 
 * {
@@ -57,6 +62,7 @@ select {
   min-height: 100vh;
   padding: 28px;
   color: #edf2ff;
+  overflow-x: clip;
 }
 
 .explorer-ambient {
@@ -179,8 +185,9 @@ select {
 
 .explorer-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 20px;
+  align-items: start;
 }
 
 .explorer-workspace,
@@ -287,13 +294,12 @@ select {
 
 .explorer-graph-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
 .explorer-graph-canvas,
 .explorer-sequence-panel {
-  min-height: 640px;
   border-radius: 20px;
   position: relative;
   overflow: hidden;
@@ -302,6 +308,16 @@ select {
     linear-gradient(90deg, rgba(84, 108, 179, 0.06) 1px, transparent 1px),
     rgba(3, 5, 14, 0.7);
   background-size: 34px 34px;
+}
+
+.explorer-graph-canvas {
+  min-height: clamp(760px, 78vh, 1080px);
+}
+
+.explorer-sequence-panel {
+  min-height: 420px;
+  max-height: 620px;
+  overflow: auto;
 }
 
 .explorer-graph-canvas.is-maximized {
@@ -315,6 +331,7 @@ select {
   border-radius: 0;
   border: none;
   background-color: #03050e;
+  background-size: 42px 42px;
 }
 
 .explorer-maximize-btn {

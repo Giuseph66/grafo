@@ -309,6 +309,29 @@ export function ExplorerPage() {
     return () => window.clearInterval(timer)
   }, [debouncedQuery])
 
+  useEffect(() => {
+    document.body.classList.toggle('explorer-graph-fullscreen', isGraphMaximized)
+
+    return () => {
+      document.body.classList.remove('explorer-graph-fullscreen')
+    }
+  }, [isGraphMaximized])
+
+  useEffect(() => {
+    if (!isGraphMaximized) {
+      return undefined
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsGraphMaximized(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isGraphMaximized])
+
   const bfsVisited = new Set(bfsResult?.visitedNodeIds.slice(0, progress.bfs) ?? [])
   const dfsVisited = new Set(dfsResult?.visitedNodeIds.slice(0, progress.dfs) ?? [])
   const inspected = new Set(searchState.inspectedIds)
@@ -370,37 +393,9 @@ export function ExplorerPage() {
 
       <header className="explorer-hero">
         <div>
-          <p className="explorer-kicker">Visual Search Graph</p>
-          <h1>CityGraph Explorer</h1>
-          <p>
-            Projeto principal com grafo de cidades, busca visual em tempo real e comparação clara entre BFS e DFS.
-          </p>
-        </div>
-        <div className="explorer-badges">
-          <span>9 cidades</span>
-          <span>Busca animada</span>
-          <span>BFS + DFS</span>
+          <h1>Graph Explorer</h1>
         </div>
       </header>
-
-      <section className="explorer-overview">
-        <article className="explorer-overview-card">
-          <p className="explorer-kicker">Busca</p>
-          <strong>Inspeção visual</strong>
-          <span>O sistema percorre o grafo enquanto você digita e mostra exatamente onde está procurando.</span>
-        </article>
-        <article className="explorer-overview-card">
-          <p className="explorer-kicker">Grafo</p>
-          <strong>Todas as cidades visíveis</strong>
-          <span>O mapa relacional já nasce completo, sem depender de categoria acadêmica alguma.</span>
-        </article>
-        <article className="explorer-overview-card">
-          <p className="explorer-kicker">Percursos</p>
-          <strong>Comparação didática</strong>
-          <span>Os dois algoritmos podem rodar juntos e destacar cobertura, ordem e profundidade.</span>
-        </article>
-      </section>
-
       <main className="explorer-layout">
         <section className="explorer-workspace">
           <section className="explorer-panel explorer-search-panel">
@@ -497,14 +492,6 @@ export function ExplorerPage() {
                     <span className="explorer-legend-item root">Raiz</span>
                     <span className="explorer-legend-item match">Busca</span>
                   </div>
-                  <button
-                    type="button"
-                    className="explorer-button ghost explorer-maximize-btn"
-                    onClick={() => setIsGraphMaximized(!isGraphMaximized)}
-                    title={isGraphMaximized ? "Restaurar" : "Maximizar"}
-                  >
-                    {isGraphMaximized ? "⤓ Restaurar" : "⤢ Maximizar"}
-                  </button>
                 </div>
               </div>
 
