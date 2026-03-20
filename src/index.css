@@ -235,6 +235,56 @@ select {
   gap: 12px;
 }
 
+.explorer-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 8, 18, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.explorer-modal {
+  width: min(100%, 460px);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 173, 77, 0.28);
+  background:
+    radial-gradient(circle at top, rgba(255, 173, 77, 0.16), transparent 58%),
+    linear-gradient(180deg, rgba(22, 18, 39, 0.98), rgba(10, 11, 24, 0.98));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.explorer-modal-badge {
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 173, 77, 0.22);
+  background: rgba(255, 173, 77, 0.12);
+  color: #ffd18b;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.explorer-modal h2 {
+  margin: 0;
+  color: #fff2d8;
+  font-size: clamp(28px, 4vw, 38px);
+  line-height: 1;
+}
+
+.explorer-modal p {
+  margin: 0;
+  color: #ffe7c2;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
 .explorer-search-status-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 14px;

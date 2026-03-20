@@ -285,6 +285,7 @@ export function ExplorerPage() {
   const [progress, setProgress] = useState({ bfs: 0, dfs: 0 })
   const [isPlaying, setIsPlaying] = useState(false)
   const [isGraphMaximized, setIsGraphMaximized] = useState(false)
+  const [isNoResultsModalOpen, setIsNoResultsModalOpen] = useState(false)
   const [searchState, setSearchState] = useState<SearchState>(INITIAL_SEARCH_STATE)
   const debouncedQuery = useDebouncedValue(query, 160)
   const playbackTimerRef = useRef<number | null>(null)
@@ -350,6 +351,11 @@ export function ExplorerPage() {
     () => (normalizedTraversalQuery ? createCitySearchMatcher(visibleCityNodes, normalizedTraversalQuery) : null),
     [visibleCityNodes, normalizedTraversalQuery],
   )
+  const queryMatchIds = useMemo(
+    () => (traversalMatcher ? visibleCityNodes.filter((node) => traversalMatcher(node)).map((node) => node.id) : []),
+    [visibleCityNodes, traversalMatcher],
+  )
+  const hasKnownQueryMatch = queryMatchIds.length > 0
   const traversalStopCondition = useMemo(
     () => (
       traversalMatcher
@@ -495,6 +501,21 @@ export function ExplorerPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isGraphMaximized])
 
+  useEffect(() => {
+    if (!isNoResultsModalOpen) {
+      return undefined
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsNoResultsModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isNoResultsModalOpen])
+
   const bfsVisited = new Set(bfsResult?.visitedNodeIds.slice(0, progress.bfs) ?? [])
   const dfsVisited = new Set(dfsResult?.visitedNodeIds.slice(0, progress.dfs) ?? [])
   const bfsVisitedEdgeIds = useMemo(() => getTraversalEdgeIdsUntilProgress(bfsResult, progress.bfs), [bfsResult, progress.bfs])
@@ -520,6 +541,19 @@ export function ExplorerPage() {
   const matched = new Set(searchState.matchIds)
   const bfsCurrent = bfsResult?.visitedNodeIds[progress.bfs - 1] ?? null
   const dfsCurrent = dfsResult?.visitedNodeIds[progress.dfs - 1] ?? null
+  const bfsStepCount = bfsResult?.visitedNodeIds.length ?? 0
+  const dfsStepCount = dfsResult?.visitedNodeIds.length ?? 0
+  const hasTraversalStarted = progress.bfs > 0 || progress.dfs > 0
+  const hasCompletedActiveTraversal =
+    focusMode === 'bfs'
+      ? bfsStepCount > 0 && progress.bfs >= bfsStepCount
+      : focusMode === 'dfs'
+        ? dfsStepCount > 0 && progress.dfs >= dfsStepCount
+        : bfsStepCount > 0 &&
+          dfsStepCount > 0 &&
+          progress.bfs >= bfsStepCount &&
+          progress.dfs >= dfsStepCount
+  const showNoResultsAlert = hasInputQuery && hasTraversalStarted && hasCompletedActiveTraversal && !hasKnownQueryMatch
   const hasActiveQuery = enableVisualSearch && debouncedQuery.trim().length > 0
   const hasTraversalResults = Boolean(bfsResult || dfsResult)
   const searchHeadline = !enableVisualSearch
@@ -545,6 +579,10 @@ export function ExplorerPage() {
           ? `${searchState.matchIds.length} cidade${searchState.matchIds.length > 1 ? 's' : ''} destacada${searchState.matchIds.length > 1 ? 's' : ''} no grafo`
           : 'Nenhum resultado encontrado !!!'
         : 'Nenhuma cidade em inspeção agora'
+
+  useEffect(() => {
+    setIsNoResultsModalOpen(showNoResultsAlert)
+  }, [showNoResultsAlert])
 
   const stepBackward = () => {
     setIsPlaying(false)
@@ -991,6 +1029,34 @@ export function ExplorerPage() {
           </section>
         </aside>
       </main>
+      {isNoResultsModalOpen && (
+        <div
+          className="explorer-modal-backdrop"
+          role="presentation"
+          onClick={() => setIsNoResultsModalOpen(false)}
+        >
+          <div
+            className="explorer-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="explorer-no-results-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="explorer-modal-badge">Busca concluida</div>
+            <h2 id="explorer-no-results-title">Nenhuma cidade encontrada</h2>
+            <p>
+              "{query}" nao existe na lista atual. Tente outro nome ou digite corretamente.
+            </p>
+            <button
+              type="button"
+              className="explorer-button accent"
+              onClick={() => setIsNoResultsModalOpen(false)}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
