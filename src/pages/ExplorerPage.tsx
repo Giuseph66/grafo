@@ -172,13 +172,9 @@ const buildGraph = (
 
 function createMetricRows(result: TraversalResult) {
   return [
-    ['Tempo', formatMs(result.metrics.searchTimeMs)],
-    ['Render', formatMs(result.metrics.renderTimeMs)],
     ['Cidades visitadas', String(result.metrics.nodesVisited)],
     ['Rotas percorridas', String(result.metrics.edgesTraversed)],
     ['Profundidade', String(result.metrics.depthReached)],
-    ['Payload', formatPayload(result.metrics.payloadBytes)],
-    ['Complexidade', result.metrics.complexity],
     ['Ultima cidade', result.metrics.lastVisitedNodeId ? cityLabel(result.metrics.lastVisitedNodeId) : '-'],
   ]
 }
