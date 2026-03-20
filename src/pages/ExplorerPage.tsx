@@ -378,11 +378,11 @@ export function ExplorerPage() {
       return
     }
 
-    setBfsResult(enableBfs ? runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }) : null)
-    setDfsResult(enableDfs ? runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }) : null)
+    setBfsResult(runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }))
+    setDfsResult(runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }))
     setProgress({ bfs: 0, dfs: 0 })
     setIsPlaying(false)
-  }, [graph, enableBfs, enableDfs, traversalStopCondition, hasInputQuery])
+  }, [graph, traversalStopCondition, hasInputQuery])
 
   useEffect(() => {
     if (playbackTimerRef.current) {
@@ -501,27 +501,27 @@ export function ExplorerPage() {
   const dfsVisitedEdgeIds = useMemo(() => getTraversalEdgeIdsUntilProgress(dfsResult, progress.dfs), [dfsResult, progress.dfs])
   const bfsRecentSnapshot = useMemo(() => getRecentTraversalSnapshot(bfsResult, progress.bfs), [bfsResult, progress.bfs])
   const dfsRecentSnapshot = useMemo(() => getRecentTraversalSnapshot(dfsResult, progress.dfs), [dfsResult, progress.dfs])
-  const bfsHighlightedNodes = showOnlyLatestPath ? bfsRecentSnapshot.nodeIds : bfsVisited
-  const dfsHighlightedNodes = showOnlyLatestPath ? dfsRecentSnapshot.nodeIds : dfsVisited
+  const bfsHighlightedNodes = enableBfs ? (showOnlyLatestPath ? bfsRecentSnapshot.nodeIds : bfsVisited) : new Set<string>()
+  const dfsHighlightedNodes = enableDfs ? (showOnlyLatestPath ? dfsRecentSnapshot.nodeIds : dfsVisited) : new Set<string>()
   const activeEdgeIds = useMemo(() => {
     if (!showOnlyLatestPath) {
       return new Set<string>([
-        ...bfsVisitedEdgeIds,
-        ...dfsVisitedEdgeIds,
+        ...(enableBfs ? [...bfsVisitedEdgeIds] : []),
+        ...(enableDfs ? [...dfsVisitedEdgeIds] : []),
       ])
     }
 
     return new Set<string>([
-      ...bfsRecentSnapshot.edgeIds,
-      ...dfsRecentSnapshot.edgeIds,
+      ...(enableBfs ? [...bfsRecentSnapshot.edgeIds] : []),
+      ...(enableDfs ? [...dfsRecentSnapshot.edgeIds] : []),
     ])
-  }, [showOnlyLatestPath, bfsVisitedEdgeIds, dfsVisitedEdgeIds, bfsRecentSnapshot, dfsRecentSnapshot])
+  }, [showOnlyLatestPath, enableBfs, enableDfs, bfsVisitedEdgeIds, dfsVisitedEdgeIds, bfsRecentSnapshot, dfsRecentSnapshot])
   const inspected = new Set(searchState.inspectedIds)
   const matched = new Set(searchState.matchIds)
   const bfsCurrent = bfsResult?.visitedNodeIds[progress.bfs - 1] ?? null
   const dfsCurrent = dfsResult?.visitedNodeIds[progress.dfs - 1] ?? null
   const hasActiveQuery = enableVisualSearch && debouncedQuery.trim().length > 0
-  const hasTraversalResults = Boolean((enableBfs && bfsResult) || (enableDfs && dfsResult))
+  const hasTraversalResults = Boolean(bfsResult || dfsResult)
   const searchHeadline = !enableVisualSearch
     ? 'Busca visual desativada'
     : hasActiveQuery
@@ -841,8 +841,8 @@ export function ExplorerPage() {
                   if (searchState.currentId === node.id) classNames.push('is-searching')
                   if (bfsHighlightedNodes.has(node.id)) classNames.push('is-bfs-visited')
                   if (dfsHighlightedNodes.has(node.id)) classNames.push('is-dfs-visited')
-                  if (bfsCurrent === node.id) classNames.push('is-bfs-current')
-                  if (dfsCurrent === node.id) classNames.push('is-dfs-current')
+                  if (enableBfs && bfsCurrent === node.id) classNames.push('is-bfs-current')
+                  if (enableDfs && dfsCurrent === node.id) classNames.push('is-dfs-current')
 
                   return (
                     <button
@@ -852,8 +852,8 @@ export function ExplorerPage() {
                       style={{ left: `${position.x}%`, top: `${position.y}%` }}
                       onClick={() => setRootCityId(node.id)}
                     >
-                      {bfsVisited.has(node.id) && <span className="explorer-node-badge bfs">{bfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
-                      {dfsVisited.has(node.id) && <span className="explorer-node-badge dfs">{dfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
+                      {enableBfs && bfsVisited.has(node.id) && <span className="explorer-node-badge bfs">{bfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
+                      {enableDfs && dfsVisited.has(node.id) && <span className="explorer-node-badge dfs">{dfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
                       <span className="explorer-node-label">{cityNode.title}</span>
                     </button>
                   )
@@ -877,12 +877,12 @@ export function ExplorerPage() {
                 <div className="explorer-progress-track search">
                   <span style={{ width: `${searchState.total > 0 ? (searchState.step / searchState.total) * 100 : 0}%` }} />
                 </div>
-                <div className="explorer-progress-track bfs">
+                {enableBfs && <div className="explorer-progress-track bfs">
                   <span style={{ width: `${bfsResult ? (progress.bfs / bfsResult.visitedNodeIds.length) * 100 : 0}%` }} />
-                </div>
-                <div className="explorer-progress-track dfs">
+                </div>}
+                {enableDfs && <div className="explorer-progress-track dfs">
                   <span style={{ width: `${dfsResult ? (progress.dfs / dfsResult.visitedNodeIds.length) * 100 : 0}%` }} />
-                </div>
+                </div>}
               </div>
 
               <div className="explorer-step-grid">
@@ -891,16 +891,16 @@ export function ExplorerPage() {
                   <span>{hasActiveQuery ? `Consultando "${debouncedQuery}"` : 'Sem termo ativo'}</span>
                   <span>{searchStepDetail}</span>
                 </div>
-                <div className="explorer-step-card bfs">
+                {enableBfs && <div className="explorer-step-card bfs">
                   <strong>BFS (Busca em Largura)</strong>
                   <span>{bfsCurrent ? `Atual: ${cityLabel(bfsCurrent)}` : 'Aguardando avanço'}</span>
                   <span>{bfsResult ? `Passo ${progress.bfs} de ${bfsResult.visitedNodeIds.length}` : 'Desabilitado'}</span>
-                </div>
-                <div className="explorer-step-card dfs">
+                </div>}
+                {enableDfs && <div className="explorer-step-card dfs">
                   <strong>DFS (Busca em Profundidade)</strong>
                   <span>{dfsCurrent ? `Atual: ${cityLabel(dfsCurrent)}` : 'Aguardando avanço'}</span>
                   <span>{dfsResult ? `Passo ${progress.dfs} de ${dfsResult.visitedNodeIds.length}` : 'Desabilitado'}</span>
-                </div>
+                </div>}
               </div>
 
               <div className="explorer-sequence-panel">
@@ -926,8 +926,8 @@ export function ExplorerPage() {
                   </div>
                 </div>
 
-                {renderSequence(bfsResult, progress.bfs, 'bfs')}
-                {renderSequence(dfsResult, progress.dfs, 'dfs')}
+                {enableBfs && renderSequence(bfsResult, progress.bfs, 'bfs')}
+                {enableDfs && renderSequence(dfsResult, progress.dfs, 'dfs')}
               </div>
             </article>
           </section>
