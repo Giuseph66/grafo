@@ -19,6 +19,7 @@ interface SearchState {
 }
 
 const MIN_CITY_COUNT = 10
+const RECENT_PATH_WINDOW = 5
 
 function computeRadialPositions(
   rootId: string,
@@ -194,6 +195,24 @@ function normalizeSearchValue(value: string) {
     .trim()
 }
 
+function createCitySearchMatcher(
+  nodes: Array<Pick<PaperNode, 'title' | 'venue'>>,
+  normalizedQuery: string,
+) {
+  const exactTitleExists = nodes.some((node) => normalizeSearchValue(node.title) === normalizedQuery)
+
+  return (node: Pick<PaperNode, 'title' | 'venue'> | Pick<GraphNode, 'label'>) => {
+    const normalizedTitle = normalizeSearchValue('title' in node ? node.title : node.label)
+
+    if (exactTitleExists) {
+      return normalizedTitle === normalizedQuery
+    }
+
+    const normalizedVenue = 'venue' in node ? normalizeSearchValue(node.venue) : ''
+    return normalizedTitle.includes(normalizedQuery) || normalizedVenue.includes(normalizedQuery)
+  }
+}
+
 function getAutocompleteSuffix(currentValue: string, suggestion: string) {
   return suggestion.toLowerCase().startsWith(currentValue.toLowerCase())
     ? suggestion.slice(currentValue.length)
@@ -210,11 +229,54 @@ function getSequenceClasses(index: number, progress: number) {
   return 'is-complete'
 }
 
+function getRecentTraversalSnapshot(result: TraversalResult | null, progress: number, edgeWindow = RECENT_PATH_WINDOW) {
+  if (!result || progress <= 0) {
+    return {
+      edgeIds: new Set<string>(),
+      nodeIds: new Set<string>(),
+    }
+  }
+
+  const visitedSteps = result.steps
+    .filter((step) => step.phase === 'visit')
+    .slice(0, progress)
+
+  const recentEdges = visitedSteps
+    .map((step) => step.viaEdgeId)
+    .filter((edgeId): edgeId is string => Boolean(edgeId))
+    .slice(-edgeWindow)
+
+  const recentNodes = visitedSteps
+    .slice(-(edgeWindow + 1))
+    .map((step) => step.nodeId)
+
+  return {
+    edgeIds: new Set(recentEdges),
+    nodeIds: new Set(recentNodes),
+  }
+}
+
+function getTraversalEdgeIdsUntilProgress(result: TraversalResult | null, progress: number) {
+  if (!result || progress <= 0) {
+    return new Set<string>()
+  }
+
+  return new Set(
+    result.steps
+      .filter((step) => step.phase === 'visit')
+      .slice(0, progress)
+      .map((step) => step.viaEdgeId)
+      .filter((edgeId): edgeId is string => Boolean(edgeId)),
+  )
+}
+
 export function ExplorerPage() {
   const [query, setQuery] = useState('')
   const [rootCityId, setRootCityId] = useState('paper_cuiaba')
   const [cityLimit, setCityLimit] = useState(ALL_CITY_NODES.length)
   const [enableVisualSearch, setEnableVisualSearch] = useState(false)
+  const [animationSpeedMultiplier, setAnimationSpeedMultiplier] = useState(1)
+  const [showOnlyLatestPath, setShowOnlyLatestPath] = useState(false)
   const [enableBfs, setEnableBfs] = useState(true)
   const [enableDfs, setEnableDfs] = useState(true)
   const [focusMode, setFocusMode] = useState<FocusMode>('sync')
@@ -269,6 +331,7 @@ export function ExplorerPage() {
     [effectiveRootCityId, visibleCityNodes],
   )
   const normalizedTraversalQuery = useMemo(() => normalizeSearchValue(query), [query])
+  const hasInputQuery = normalizedTraversalQuery.length > 0
   const autocompleteSuggestion = useMemo(() => {
     if (!normalizedTraversalQuery) {
       return ''
@@ -283,15 +346,17 @@ export function ExplorerPage() {
     () => getAutocompleteSuffix(query, autocompleteSuggestion),
     [query, autocompleteSuggestion],
   )
+  const traversalMatcher = useMemo(
+    () => (normalizedTraversalQuery ? createCitySearchMatcher(visibleCityNodes, normalizedTraversalQuery) : null),
+    [visibleCityNodes, normalizedTraversalQuery],
+  )
   const traversalStopCondition = useMemo(
     () => (
-      normalizedTraversalQuery
-        ? (node: GraphNode) =>
-            normalizeSearchValue(node.label).includes(normalizedTraversalQuery)
-            || ('venue' in node && normalizeSearchValue(node.venue).includes(normalizedTraversalQuery))
+      traversalMatcher
+        ? (node: GraphNode) => traversalMatcher(node)
         : undefined
     ),
-    [normalizedTraversalQuery],
+    [traversalMatcher],
   )
   const comparison = useMemo(
     () => (bfsResult && dfsResult ? compareTraversals(bfsResult, dfsResult) : null),
@@ -305,11 +370,19 @@ export function ExplorerPage() {
   }, [rootCityId, effectiveRootCityId])
 
   useEffect(() => {
+    if (!hasInputQuery) {
+      setBfsResult(null)
+      setDfsResult(null)
+      setProgress({ bfs: 0, dfs: 0 })
+      setIsPlaying(false)
+      return
+    }
+
     setBfsResult(enableBfs ? runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }) : null)
     setDfsResult(enableDfs ? runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }) : null)
     setProgress({ bfs: 0, dfs: 0 })
     setIsPlaying(false)
-  }, [graph, enableBfs, enableDfs, traversalStopCondition])
+  }, [graph, enableBfs, enableDfs, traversalStopCondition, hasInputQuery])
 
   useEffect(() => {
     if (playbackTimerRef.current) {
@@ -344,7 +417,7 @@ export function ExplorerPage() {
 
         return next
       })
-    }, 820)
+    }, Math.max(120, Math.round(820 / animationSpeedMultiplier)))
 
     return () => {
       if (playbackTimerRef.current) {
@@ -352,7 +425,7 @@ export function ExplorerPage() {
         playbackTimerRef.current = null
       }
     }
-  }, [isPlaying, focusMode, bfsResult, dfsResult])
+  }, [isPlaying, focusMode, bfsResult, dfsResult, animationSpeedMultiplier])
 
   useEffect(() => {
     if (!enableVisualSearch || !debouncedQuery.trim()) {
@@ -363,6 +436,7 @@ export function ExplorerPage() {
     const orderedNodes = [...visibleCityNodes].sort((left, right) => left.title.localeCompare(right.title))
     let index = -1
     const normalizedQuery = normalizeSearchValue(debouncedQuery)
+    const visualSearchMatcher = createCitySearchMatcher(orderedNodes, normalizedQuery)
 
     setSearchState({
       currentId: null,
@@ -383,10 +457,7 @@ export function ExplorerPage() {
       }
 
       const city = orderedNodes[index]
-      const normalizedTitle = normalizeSearchValue(city.title)
-      const normalizedVenue = normalizeSearchValue(city.venue)
-      const isMatch =
-        normalizedTitle.includes(normalizedQuery) || normalizedVenue.includes(normalizedQuery)
+      const isMatch = visualSearchMatcher(city)
 
       setSearchState((current) => ({
         currentId: city.id,
@@ -426,11 +497,31 @@ export function ExplorerPage() {
 
   const bfsVisited = new Set(bfsResult?.visitedNodeIds.slice(0, progress.bfs) ?? [])
   const dfsVisited = new Set(dfsResult?.visitedNodeIds.slice(0, progress.dfs) ?? [])
+  const bfsVisitedEdgeIds = useMemo(() => getTraversalEdgeIdsUntilProgress(bfsResult, progress.bfs), [bfsResult, progress.bfs])
+  const dfsVisitedEdgeIds = useMemo(() => getTraversalEdgeIdsUntilProgress(dfsResult, progress.dfs), [dfsResult, progress.dfs])
+  const bfsRecentSnapshot = useMemo(() => getRecentTraversalSnapshot(bfsResult, progress.bfs), [bfsResult, progress.bfs])
+  const dfsRecentSnapshot = useMemo(() => getRecentTraversalSnapshot(dfsResult, progress.dfs), [dfsResult, progress.dfs])
+  const bfsHighlightedNodes = showOnlyLatestPath ? bfsRecentSnapshot.nodeIds : bfsVisited
+  const dfsHighlightedNodes = showOnlyLatestPath ? dfsRecentSnapshot.nodeIds : dfsVisited
+  const activeEdgeIds = useMemo(() => {
+    if (!showOnlyLatestPath) {
+      return new Set<string>([
+        ...bfsVisitedEdgeIds,
+        ...dfsVisitedEdgeIds,
+      ])
+    }
+
+    return new Set<string>([
+      ...bfsRecentSnapshot.edgeIds,
+      ...dfsRecentSnapshot.edgeIds,
+    ])
+  }, [showOnlyLatestPath, bfsVisitedEdgeIds, dfsVisitedEdgeIds, bfsRecentSnapshot, dfsRecentSnapshot])
   const inspected = new Set(searchState.inspectedIds)
   const matched = new Set(searchState.matchIds)
   const bfsCurrent = bfsResult?.visitedNodeIds[progress.bfs - 1] ?? null
   const dfsCurrent = dfsResult?.visitedNodeIds[progress.dfs - 1] ?? null
   const hasActiveQuery = enableVisualSearch && debouncedQuery.trim().length > 0
+  const hasTraversalResults = Boolean((enableBfs && bfsResult) || (enableDfs && dfsResult))
   const searchHeadline = !enableVisualSearch
     ? 'Busca visual desativada'
     : hasActiveQuery
@@ -438,7 +529,7 @@ export function ExplorerPage() {
         ? cityLabel(searchState.currentId)
         : searchState.matchIds.length > 0
           ? `${searchState.matchIds.length} resultado${searchState.matchIds.length > 1 ? 's' : ''}`
-          : 'Nenhum resultado'
+          : 'Nenhum resultado encontrado !!!'
       : 'Aguardando termo'
   const searchProgressLabel = !enableVisualSearch
     ? 'Ative o toggle para inspecionar o grafo em tempo real.'
@@ -452,7 +543,7 @@ export function ExplorerPage() {
       : hasActiveQuery
         ? searchState.matchIds.length > 0
           ? `${searchState.matchIds.length} cidade${searchState.matchIds.length > 1 ? 's' : ''} destacada${searchState.matchIds.length > 1 ? 's' : ''} no grafo`
-          : 'Nenhuma cidade corresponde ao termo pesquisado'
+          : 'Nenhum resultado encontrado !!!'
         : 'Nenhuma cidade em inspeção agora'
 
   const stepBackward = () => {
@@ -548,6 +639,7 @@ export function ExplorerPage() {
                     ))}
                   </select>
                 </label>
+                {/*
                 <label className="explorer-toggle">
                   <input
                     type="checkbox"
@@ -556,6 +648,7 @@ export function ExplorerPage() {
                   />
                   Busca visual
                 </label>
+                  */}
               </div>
             </div>
             <div className="explorer-search-row">
@@ -570,7 +663,7 @@ export function ExplorerPage() {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={handleQueryKeyDown}
-                  placeholder={enableVisualSearch ? 'Digite uma cidade ou estado: Cuiaba, Curitiba, Sao Paulo, Goias...' : 'Digite normalmente. Ative a busca visual para inspecionar o grafo'}
+                  placeholder={enableVisualSearch ? 'Digite uma cidade ou estado: Cuiaba, Curitiba, Sao Paulo, Goias...' : 'Digite normalmente.'}
                   className="explorer-input explorer-input-shell-field"
                 />
               </div>
@@ -590,6 +683,7 @@ export function ExplorerPage() {
                 Limpar
               </button>
             </div>
+            {/*
             <div className="explorer-search-status-row">
               <div className="explorer-inspector-card">
                 <p className="explorer-kicker">Busca visual</p>
@@ -601,7 +695,7 @@ export function ExplorerPage() {
                 <div className="explorer-chip-row">
                   {searchState.matchIds.length === 0 ? (
                     <span className="explorer-chip muted">
-                      {!enableVisualSearch ? 'Busca visual desligada' : hasActiveQuery ? 'Nenhum match encontrado' : 'Sem matches ainda'}
+                      {!enableVisualSearch ? 'Busca visual desligada' : hasActiveQuery ? 'Nenhum resultado encontrado !!!' : 'Sem matches ainda'}
                     </span>
                   ) : (
                     searchState.matchIds.map((nodeId) => (
@@ -618,6 +712,7 @@ export function ExplorerPage() {
                 </div>
               </div>
             </div>
+                */}
           </section>
 
           <section className="explorer-panel explorer-control-panel">
@@ -629,6 +724,7 @@ export function ExplorerPage() {
               <input type="checkbox" checked={enableDfs} onChange={(event) => setEnableDfs(event.target.checked)} />
               DFS (Busca em Profundidade)
             </label>
+            {/*
             <button type="button" className="explorer-button primary" onClick={() => {
               setBfsResult(enableBfs ? runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }) : null)
               setDfsResult(enableDfs ? runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }) : null)
@@ -637,12 +733,31 @@ export function ExplorerPage() {
             }}>
               Executar percurso
             </button>
-            <button type="button" className="explorer-button accent" onClick={() => setIsPlaying((value) => !value)}>
+              */}
+            <button
+              type="button"
+              className="explorer-button accent"
+              onClick={() => setIsPlaying((value) => !value)}
+              disabled={!hasInputQuery || !hasTraversalResults}
+            >
               {isPlaying ? 'Pausar animacao' : 'Iniciar animacao'}
             </button>
-            <button type="button" className="explorer-button ghost" onClick={stepBackward}>Passo anterior</button>
-            <button type="button" className="explorer-button ghost" onClick={stepForward}>Proximo passo</button>
-            <button type="button" className="explorer-button ghost" onClick={resetPlayback}>Reiniciar</button>
+            <div className="explorer-speed-control">
+              <span className="explorer-speed-label">Velocidade {animationSpeedMultiplier}x</span>
+              <input
+                type="range"
+                min="0.5"
+                max="5"
+                step="0.5"
+                value={animationSpeedMultiplier}
+                onChange={(event) => setAnimationSpeedMultiplier(Number(event.target.value))}
+                className="explorer-speed-slider"
+                disabled={!hasInputQuery}
+              />
+            </div>
+            <button type="button" className="explorer-button ghost" onClick={stepBackward} disabled={!hasInputQuery || !hasTraversalResults}>Passo anterior</button>
+            <button type="button" className="explorer-button ghost" onClick={stepForward} disabled={!hasInputQuery || !hasTraversalResults}>Proximo passo</button>
+            <button type="button" className="explorer-button ghost" onClick={resetPlayback} disabled={!hasInputQuery || !hasTraversalResults}>Reiniciar</button>
             <label className="explorer-select-wrap">
               Foco
               <select value={focusMode} onChange={(event) => setFocusMode(event.target.value as FocusMode)} className="explorer-select">
@@ -662,6 +777,14 @@ export function ExplorerPage() {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <div className="explorer-legend">
+                    <label className="explorer-toggle explorer-header-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showOnlyLatestPath}
+                        onChange={(event) => setShowOnlyLatestPath(event.target.checked)}
+                      />
+                      Apenas ultimos caminho
+                    </label>
                     <span className="explorer-legend-item city">Cidade</span>
                     <span className="explorer-legend-item root">Raiz</span>
                     <span className="explorer-legend-item match">Busca</span>
@@ -688,11 +811,7 @@ export function ExplorerPage() {
                       return null
                     }
 
-                    const isActive =
-                      bfsVisited.has(link.source) ||
-                      bfsVisited.has(link.target) ||
-                      dfsVisited.has(link.source) ||
-                      dfsVisited.has(link.target)
+                    const isActive = activeEdgeIds.has(link.id)
                     const isSearchRelated =
                       matched.has(link.source) ||
                       matched.has(link.target) ||
@@ -720,8 +839,8 @@ export function ExplorerPage() {
                   if (inspected.has(node.id)) classNames.push('is-inspected')
                   if (matched.has(node.id)) classNames.push('is-match')
                   if (searchState.currentId === node.id) classNames.push('is-searching')
-                  if (bfsVisited.has(node.id)) classNames.push('is-bfs-visited')
-                  if (dfsVisited.has(node.id)) classNames.push('is-dfs-visited')
+                  if (bfsHighlightedNodes.has(node.id)) classNames.push('is-bfs-visited')
+                  if (dfsHighlightedNodes.has(node.id)) classNames.push('is-dfs-visited')
                   if (bfsCurrent === node.id) classNames.push('is-bfs-current')
                   if (dfsCurrent === node.id) classNames.push('is-dfs-current')
 

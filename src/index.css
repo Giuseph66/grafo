@@ -357,6 +357,14 @@ select {
   color: #c2ccef;
 }
 
+.explorer-header-toggle {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  color: #d7e2ff;
+}
+
 .explorer-control-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -366,6 +374,29 @@ select {
 
 .explorer-select-wrap {
   justify-content: space-between;
+}
+
+.explorer-speed-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.explorer-speed-label {
+  white-space: nowrap;
+  color: #d8e4ff;
+  font-weight: 600;
+}
+
+.explorer-speed-slider {
+  width: 100%;
+  accent-color: #49d9ff;
+  cursor: pointer;
 }
 
 .explorer-graph-grid {
