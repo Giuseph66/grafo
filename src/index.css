@@ -209,6 +209,25 @@ select {
   grid-template-columns: 1fr;
 }
 
+.explorer-search-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.explorer-search-toolbar strong {
+  display: block;
+}
+
+.explorer-search-toolbar-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .explorer-search-box,
 .explorer-search-row,
 .explorer-search-status-row {
@@ -225,6 +244,42 @@ select {
   grid-template-columns: minmax(0, 1fr) 120px;
 }
 
+.explorer-input-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  border: 1px solid rgba(134, 149, 219, 0.18);
+  border-radius: 14px;
+  background: rgba(7, 10, 20, 0.86);
+  padding: 0 14px;
+}
+
+.explorer-input-shell:focus-within {
+  border-color: rgba(143, 184, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(143, 184, 255, 0.16);
+}
+
+.explorer-input-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 16px;
+}
+
+.explorer-input-ghost-typed {
+  opacity: 0;
+}
+
+.explorer-input-ghost-suffix {
+  color: rgba(237, 242, 255, 0.3);
+}
+
 .explorer-input,
 .explorer-select,
 .explorer-button {
@@ -236,6 +291,21 @@ select {
   padding: 0 14px;
 }
 
+.explorer-input-shell-field {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 46px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+.explorer-mobile-complete-btn {
+  display: none;
+}
+
 .explorer-button {
   cursor: pointer;
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
@@ -244,6 +314,12 @@ select {
 .explorer-button:hover,
 .explorer-chip:hover {
   transform: translateY(-1px);
+}
+
+.explorer-button:disabled,
+.explorer-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .explorer-button.primary {
@@ -767,8 +843,14 @@ select {
     padding: 16px;
   }
 
+  .explorer-mobile-complete-btn {
+    display: inline-flex;
+    justify-content: center;
+  }
+
   .explorer-hero,
   .explorer-panel-header,
+  .explorer-search-toolbar,
   .explorer-search-status-row,
   .explorer-step-grid,
   .explorer-control-panel,

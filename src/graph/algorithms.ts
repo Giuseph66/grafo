@@ -6,6 +6,10 @@ interface Neighbor {
   edgeId: string
 }
 
+interface TraversalOptions {
+  stopWhen?: (node: GraphNode) => boolean
+}
+
 const neighborPriority = (node: GraphNode) => {
   if (node.type === 'paper') return 0
   if (node.type === 'author') return 1
@@ -48,13 +52,22 @@ const buildAdjacency = (graph: AcademicGraph) => {
   return adjacency
 }
 
-export const runTraversal = (graph: AcademicGraph, algorithm: TraversalAlgorithm): TraversalResult => {
+export const runTraversal = (
+  graph: AcademicGraph,
+  algorithm: TraversalAlgorithm,
+  options: TraversalOptions = {},
+): TraversalResult => {
   const adjacency = buildAdjacency(graph)
-  return algorithm === 'bfs' ? runBfs(graph, adjacency) : runDfs(graph, adjacency)
+  return algorithm === 'bfs' ? runBfs(graph, adjacency, options) : runDfs(graph, adjacency, options)
 }
 
-const runBfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): TraversalResult => {
+const runBfs = (
+  graph: AcademicGraph,
+  adjacency: Map<string, Neighbor[]>,
+  options: TraversalOptions,
+): TraversalResult => {
   const start = performance.now()
+  const nodeMap = getNodeMap(graph)
   const visited = new Set<string>()
   const visitedEdges = new Set<string>()
   const steps: TraversalStep[] = []
@@ -74,6 +87,7 @@ const runBfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): Trave
     visitOrder.push(current.nodeId)
     frontierSnapshots.push(queue.map((item) => item.nodeId))
     maxDepth = Math.max(maxDepth, current.depth)
+    const currentNode = nodeMap.get(current.nodeId)
     steps.push({
       index: steps.length + 1,
       nodeId: current.nodeId,
@@ -83,6 +97,11 @@ const runBfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): Trave
       frontier: queue.map((item) => item.nodeId),
       branch: [current.nodeId],
     })
+
+    if (currentNode && options.stopWhen?.(currentNode)) {
+      queue.length = 0
+      break
+    }
 
     for (const neighbor of adjacency.get(current.nodeId) ?? []) {
       if (visited.has(neighbor.nodeId) || queue.some((item) => item.nodeId === neighbor.nodeId)) {
@@ -126,8 +145,13 @@ const runBfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): Trave
   }
 }
 
-const runDfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): TraversalResult => {
+const runDfs = (
+  graph: AcademicGraph,
+  adjacency: Map<string, Neighbor[]>,
+  options: TraversalOptions,
+): TraversalResult => {
   const start = performance.now()
+  const nodeMap = getNodeMap(graph)
   const visited = new Set<string>()
   const visitedEdges = new Set<string>()
   const steps: TraversalStep[] = []
@@ -172,6 +196,7 @@ const runDfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): Trave
     visited.add(current.nodeId)
     visitOrder.push(current.nodeId)
     maxDepth = Math.max(maxDepth, current.depth)
+    const currentNode = nodeMap.get(current.nodeId)
     if (current.branch.length > deepestBranch.length) {
       deepestBranch = current.branch
     }
@@ -185,6 +210,11 @@ const runDfs = (graph: AcademicGraph, adjacency: Map<string, Neighbor[]>): Trave
       frontier: stack.map((item) => item.nodeId),
       branch: current.branch,
     })
+
+    if (currentNode && options.stopWhen?.(currentNode)) {
+      stack.length = 0
+      break
+    }
 
     const neighbors = (adjacency.get(current.nodeId) ?? []).filter((neighbor) => !visited.has(neighbor.nodeId))
     stack.push({ ...current, stage: 'backtrack' })

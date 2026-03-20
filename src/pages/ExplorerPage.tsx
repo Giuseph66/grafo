@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { compareTraversals } from '../analytics/comparison'
 import { runTraversal } from '../graph/algorithms'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { mockPapers } from '../mocks/scholarData'
 import { formatMs, formatPayload } from '../utils/formatting'
-import type { AcademicGraph, GraphLink, PaperNode, TraversalResult } from '../types/domain'
+import type { AcademicGraph, GraphLink, GraphNode, PaperNode, TraversalResult } from '../types/domain'
 
 type FocusMode = 'sync' | 'bfs' | 'dfs'
 
@@ -16,6 +17,8 @@ interface SearchState {
   total: number
   running: boolean
 }
+
+const MIN_CITY_COUNT = 10
 
 function computeRadialPositions(
   rootId: string,
@@ -143,18 +146,24 @@ const INITIAL_SEARCH_STATE: SearchState = {
   running: false,
 }
 
-const buildGraph = (rootNodeId: string): AcademicGraph => {
-  const payloadBytes = JSON.stringify(mockPapers).length
+const buildGraph = (
+  rootNodeId: string,
+  nodes: PaperNode[],
+  links: GraphLink[],
+): AcademicGraph => {
+  const visibleIds = new Set(nodes.map((node) => node.id))
+  const payloadBytes = JSON.stringify(mockPapers.filter((city) => visibleIds.has(city.paperId))).length
+
   return {
-    nodes: ALL_CITY_NODES,
-    links: ALL_CITY_LINKS,
+    nodes,
+    links,
     rootNodeId,
     metadata: {
       requests: 1,
       payloadBytes,
       truncated: false,
       buildDepth: 3,
-      maxNodes: ALL_CITY_NODES.length,
+      maxNodes: nodes.length,
       source: 'mock',
     },
   }
@@ -177,6 +186,20 @@ function cityLabel(nodeId: string) {
   return ALL_CITY_NODES.find((node) => node.id === nodeId)?.title ?? nodeId
 }
 
+function normalizeSearchValue(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function getAutocompleteSuffix(currentValue: string, suggestion: string) {
+  return suggestion.toLowerCase().startsWith(currentValue.toLowerCase())
+    ? suggestion.slice(currentValue.length)
+    : ''
+}
+
 function createCurvePath(source: { x: number; y: number }, target: { x: number; y: number }) {
   return `M ${source.x} ${source.y} L ${target.x} ${target.y}`
 }
@@ -190,6 +213,8 @@ function getSequenceClasses(index: number, progress: number) {
 export function ExplorerPage() {
   const [query, setQuery] = useState('')
   const [rootCityId, setRootCityId] = useState('paper_cuiaba')
+  const [cityLimit, setCityLimit] = useState(ALL_CITY_NODES.length)
+  const [enableVisualSearch, setEnableVisualSearch] = useState(false)
   const [enableBfs, setEnableBfs] = useState(true)
   const [enableDfs, setEnableDfs] = useState(true)
   const [focusMode, setFocusMode] = useState<FocusMode>('sync')
@@ -201,21 +226,90 @@ export function ExplorerPage() {
   const [searchState, setSearchState] = useState<SearchState>(INITIAL_SEARCH_STATE)
   const debouncedQuery = useDebouncedValue(query, 160)
   const playbackTimerRef = useRef<number | null>(null)
+  const cityCountOptions = useMemo(
+    () => Array.from({ length: ALL_CITY_NODES.length - MIN_CITY_COUNT + 1 }, (_, index) => MIN_CITY_COUNT + index),
+    [],
+  )
+  const visibleCityNodes = useMemo(() => ALL_CITY_NODES.slice(0, cityLimit), [cityLimit])
+  const visibleCityIds = useMemo(() => new Set(visibleCityNodes.map((node) => node.id)), [visibleCityNodes])
+  const visibleCityLinks = useMemo(
+    () => ALL_CITY_LINKS.filter((link) => visibleCityIds.has(link.source) && visibleCityIds.has(link.target)),
+    [visibleCityIds],
+  )
+  const searchableTerms = useMemo(() => {
+    const seen = new Set<string>()
+    const terms: string[] = []
 
-  const graph = useMemo(() => buildGraph(rootCityId), [rootCityId])
-  const dynamicPositions = useMemo(() => computeRadialPositions(rootCityId, ALL_CITY_NODES, ALL_CITY_LINKS), [rootCityId])
-  const selectedCity = useMemo(() => ALL_CITY_NODES.find((node) => node.id === rootCityId) ?? ALL_CITY_NODES[0], [rootCityId])
+    for (const node of visibleCityNodes) {
+      for (const candidate of [node.title, node.venue]) {
+        const key = normalizeSearchValue(candidate)
+        if (!key || seen.has(key)) {
+          continue
+        }
+
+        seen.add(key)
+        terms.push(candidate)
+      }
+    }
+
+    return terms
+  }, [visibleCityNodes])
+  const effectiveRootCityId = visibleCityIds.has(rootCityId) ? rootCityId : (visibleCityNodes[0]?.id ?? rootCityId)
+
+  const graph = useMemo(
+    () => buildGraph(effectiveRootCityId, visibleCityNodes, visibleCityLinks),
+    [effectiveRootCityId, visibleCityNodes, visibleCityLinks],
+  )
+  const dynamicPositions = useMemo(
+    () => computeRadialPositions(effectiveRootCityId, visibleCityNodes, visibleCityLinks),
+    [effectiveRootCityId, visibleCityNodes, visibleCityLinks],
+  )
+  const selectedCity = useMemo(
+    () => visibleCityNodes.find((node) => node.id === effectiveRootCityId) ?? visibleCityNodes[0] ?? ALL_CITY_NODES[0],
+    [effectiveRootCityId, visibleCityNodes],
+  )
+  const normalizedTraversalQuery = useMemo(() => normalizeSearchValue(query), [query])
+  const autocompleteSuggestion = useMemo(() => {
+    if (!normalizedTraversalQuery) {
+      return ''
+    }
+
+    return searchableTerms.find((term) => {
+      const normalizedTerm = normalizeSearchValue(term)
+      return normalizedTerm.startsWith(normalizedTraversalQuery) && normalizedTerm !== normalizedTraversalQuery
+    }) ?? ''
+  }, [normalizedTraversalQuery, searchableTerms])
+  const autocompleteSuffix = useMemo(
+    () => getAutocompleteSuffix(query, autocompleteSuggestion),
+    [query, autocompleteSuggestion],
+  )
+  const traversalStopCondition = useMemo(
+    () => (
+      normalizedTraversalQuery
+        ? (node: GraphNode) =>
+            normalizeSearchValue(node.label).includes(normalizedTraversalQuery)
+            || ('venue' in node && normalizeSearchValue(node.venue).includes(normalizedTraversalQuery))
+        : undefined
+    ),
+    [normalizedTraversalQuery],
+  )
   const comparison = useMemo(
     () => (bfsResult && dfsResult ? compareTraversals(bfsResult, dfsResult) : null),
     [bfsResult, dfsResult],
   )
 
   useEffect(() => {
-    setBfsResult(enableBfs ? runTraversal(graph, 'bfs') : null)
-    setDfsResult(enableDfs ? runTraversal(graph, 'dfs') : null)
+    if (rootCityId !== effectiveRootCityId) {
+      setRootCityId(effectiveRootCityId)
+    }
+  }, [rootCityId, effectiveRootCityId])
+
+  useEffect(() => {
+    setBfsResult(enableBfs ? runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }) : null)
+    setDfsResult(enableDfs ? runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }) : null)
     setProgress({ bfs: 0, dfs: 0 })
     setIsPlaying(false)
-  }, [graph, enableBfs, enableDfs])
+  }, [graph, enableBfs, enableDfs, traversalStopCondition])
 
   useEffect(() => {
     if (playbackTimerRef.current) {
@@ -261,14 +355,14 @@ export function ExplorerPage() {
   }, [isPlaying, focusMode, bfsResult, dfsResult])
 
   useEffect(() => {
-    if (!debouncedQuery.trim()) {
-      setSearchState({ ...INITIAL_SEARCH_STATE, total: ALL_CITY_NODES.length })
+    if (!enableVisualSearch || !debouncedQuery.trim()) {
+      setSearchState({ ...INITIAL_SEARCH_STATE, total: visibleCityNodes.length })
       return
     }
 
-    const orderedNodes = [...ALL_CITY_NODES].sort((left, right) => left.title.localeCompare(right.title))
+    const orderedNodes = [...visibleCityNodes].sort((left, right) => left.title.localeCompare(right.title))
     let index = -1
-    const normalizedQuery = debouncedQuery.trim().toLowerCase()
+    const normalizedQuery = normalizeSearchValue(debouncedQuery)
 
     setSearchState({
       currentId: null,
@@ -289,8 +383,10 @@ export function ExplorerPage() {
       }
 
       const city = orderedNodes[index]
+      const normalizedTitle = normalizeSearchValue(city.title)
+      const normalizedVenue = normalizeSearchValue(city.venue)
       const isMatch =
-        city.title.toLowerCase().includes(normalizedQuery) || city.venue.toLowerCase().includes(normalizedQuery)
+        normalizedTitle.includes(normalizedQuery) || normalizedVenue.includes(normalizedQuery)
 
       setSearchState((current) => ({
         currentId: city.id,
@@ -298,16 +394,12 @@ export function ExplorerPage() {
         matchIds: isMatch ? [...current.matchIds, city.id] : current.matchIds,
         step: index + 1,
         total: orderedNodes.length,
-        running: !isMatch,
+        running: index + 1 < orderedNodes.length,
       }))
-
-      if (isMatch) {
-        window.clearInterval(timer)
-      }
     }, 180)
 
     return () => window.clearInterval(timer)
-  }, [debouncedQuery])
+  }, [debouncedQuery, enableVisualSearch, visibleCityNodes])
 
   useEffect(() => {
     document.body.classList.toggle('explorer-graph-fullscreen', isGraphMaximized)
@@ -338,6 +430,30 @@ export function ExplorerPage() {
   const matched = new Set(searchState.matchIds)
   const bfsCurrent = bfsResult?.visitedNodeIds[progress.bfs - 1] ?? null
   const dfsCurrent = dfsResult?.visitedNodeIds[progress.dfs - 1] ?? null
+  const hasActiveQuery = enableVisualSearch && debouncedQuery.trim().length > 0
+  const searchHeadline = !enableVisualSearch
+    ? 'Busca visual desativada'
+    : hasActiveQuery
+      ? searchState.currentId
+        ? cityLabel(searchState.currentId)
+        : searchState.matchIds.length > 0
+          ? `${searchState.matchIds.length} resultado${searchState.matchIds.length > 1 ? 's' : ''}`
+          : 'Nenhum resultado'
+      : 'Aguardando termo'
+  const searchProgressLabel = !enableVisualSearch
+    ? 'Ative o toggle para inspecionar o grafo em tempo real.'
+    : hasActiveQuery
+      ? `Passo ${searchState.step} de ${searchState.total}${searchState.running ? ' · procurando…' : ' · concluido'}`
+      : 'Digite para iniciar a inspeção visual do grafo.'
+  const searchStepDetail = searchState.currentId
+    ? `Verificando ${cityLabel(searchState.currentId)}`
+    : !enableVisualSearch
+      ? 'Inspeção e destaque do grafo pausados'
+      : hasActiveQuery
+        ? searchState.matchIds.length > 0
+          ? `${searchState.matchIds.length} cidade${searchState.matchIds.length > 1 ? 's' : ''} destacada${searchState.matchIds.length > 1 ? 's' : ''} no grafo`
+          : 'Nenhuma cidade corresponde ao termo pesquisado'
+        : 'Nenhuma cidade em inspeção agora'
 
   const stepBackward = () => {
     setIsPlaying(false)
@@ -358,6 +474,19 @@ export function ExplorerPage() {
   const resetPlayback = () => {
     setIsPlaying(false)
     setProgress({ bfs: 0, dfs: 0 })
+  }
+
+  const handleQueryKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Tab' && !event.shiftKey && autocompleteSuggestion) {
+      event.preventDefault()
+      setQuery(autocompleteSuggestion)
+    }
+  }
+
+  const applyAutocompleteSuggestion = () => {
+    if (autocompleteSuggestion) {
+      setQuery(autocompleteSuggestion)
+    }
   }
 
   const renderSequence = (result: TraversalResult | null, progressValue: number, variant: 'bfs' | 'dfs') => {
@@ -399,13 +528,60 @@ export function ExplorerPage() {
       <main className="explorer-layout">
         <section className="explorer-workspace">
           <section className="explorer-panel explorer-search-panel">
+            <div className="explorer-search-toolbar">
+              <div>
+                <p className="explorer-kicker">Busca</p>
+                <strong>Inspeção visual do grafo</strong>
+              </div>
+              <div className="explorer-search-toolbar-actions">
+                <label className="explorer-select-wrap">
+                  Cidades
+                  <select
+                    value={cityLimit}
+                    onChange={(event) => setCityLimit(Number(event.target.value))}
+                    className="explorer-select"
+                  >
+                    {cityCountOptions.map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="explorer-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableVisualSearch}
+                    onChange={(event) => setEnableVisualSearch(event.target.checked)}
+                  />
+                  Busca visual
+                </label>
+              </div>
+            </div>
             <div className="explorer-search-row">
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Digite uma cidade ou estado: Cuiaba, Curitiba, Sao Paulo, Goias..."
-                className="explorer-input"
-              />
+              <div className="explorer-input-shell">
+                {autocompleteSuggestion && (
+                  <div className="explorer-input-ghost" aria-hidden="true">
+                    <span className="explorer-input-ghost-typed">{query}</span>
+                    <span className="explorer-input-ghost-suffix">{autocompleteSuffix}</span>
+                  </div>
+                )}
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleQueryKeyDown}
+                  placeholder={enableVisualSearch ? 'Digite uma cidade ou estado: Cuiaba, Curitiba, Sao Paulo, Goias...' : 'Digite normalmente. Ative a busca visual para inspecionar o grafo'}
+                  className="explorer-input explorer-input-shell-field"
+                />
+              </div>
+              <button
+                type="button"
+                className="explorer-button ghost explorer-mobile-complete-btn"
+                onClick={applyAutocompleteSuggestion}
+                disabled={!autocompleteSuggestion}
+              >
+                Completar
+              </button>
               <button
                 type="button"
                 className="explorer-button ghost"
@@ -417,18 +593,16 @@ export function ExplorerPage() {
             <div className="explorer-search-status-row">
               <div className="explorer-inspector-card">
                 <p className="explorer-kicker">Busca visual</p>
-                <strong>{searchState.currentId ? cityLabel(searchState.currentId) : 'Aguardando termo'}</strong>
-                <span>
-                  {debouncedQuery.trim()
-                    ? `Passo ${searchState.step} de ${searchState.total}${searchState.running ? ' · procurando…' : ' · concluido'}`
-                    : 'Digite para iniciar a inspeção visual do grafo.'}
-                </span>
+                <strong>{searchHeadline}</strong>
+                <span>{searchProgressLabel}</span>
               </div>
               <div className="explorer-matches-card">
                 <p className="explorer-kicker">Matches</p>
                 <div className="explorer-chip-row">
                   {searchState.matchIds.length === 0 ? (
-                    <span className="explorer-chip muted">Sem matches ainda</span>
+                    <span className="explorer-chip muted">
+                      {!enableVisualSearch ? 'Busca visual desligada' : hasActiveQuery ? 'Nenhum match encontrado' : 'Sem matches ainda'}
+                    </span>
                   ) : (
                     searchState.matchIds.map((nodeId) => (
                       <button
@@ -449,15 +623,15 @@ export function ExplorerPage() {
           <section className="explorer-panel explorer-control-panel">
             <label className="explorer-toggle">
               <input type="checkbox" checked={enableBfs} onChange={(event) => setEnableBfs(event.target.checked)} />
-              BFS
+              BFS (Busca em Largura)
             </label>
             <label className="explorer-toggle">
               <input type="checkbox" checked={enableDfs} onChange={(event) => setEnableDfs(event.target.checked)} />
-              DFS
+              DFS (Busca em Profundidade)
             </label>
             <button type="button" className="explorer-button primary" onClick={() => {
-              setBfsResult(enableBfs ? runTraversal(graph, 'bfs') : null)
-              setDfsResult(enableDfs ? runTraversal(graph, 'dfs') : null)
+              setBfsResult(enableBfs ? runTraversal(graph, 'bfs', { stopWhen: traversalStopCondition }) : null)
+              setDfsResult(enableDfs ? runTraversal(graph, 'dfs', { stopWhen: traversalStopCondition }) : null)
               setProgress({ bfs: 0, dfs: 0 })
               setIsPlaying(false)
             }}>
@@ -542,7 +716,7 @@ export function ExplorerPage() {
                   const cityNode = node as PaperNode
 
                   const classNames = ['explorer-node']
-                  if (node.id === rootCityId) classNames.push('is-root')
+                  if (node.id === effectiveRootCityId) classNames.push('is-root')
                   if (inspected.has(node.id)) classNames.push('is-inspected')
                   if (matched.has(node.id)) classNames.push('is-match')
                   if (searchState.currentId === node.id) classNames.push('is-searching')
@@ -595,16 +769,16 @@ export function ExplorerPage() {
               <div className="explorer-step-grid">
                 <div className="explorer-step-card search">
                   <strong>Busca</strong>
-                  <span>{debouncedQuery.trim() ? `Consultando "${debouncedQuery}"` : 'Sem termo ativo'}</span>
-                  <span>{searchState.currentId ? `Verificando ${cityLabel(searchState.currentId)}` : 'Nenhuma cidade em inspeção agora'}</span>
+                  <span>{hasActiveQuery ? `Consultando "${debouncedQuery}"` : 'Sem termo ativo'}</span>
+                  <span>{searchStepDetail}</span>
                 </div>
                 <div className="explorer-step-card bfs">
-                  <strong>BFS</strong>
+                  <strong>BFS (Busca em Largura)</strong>
                   <span>{bfsCurrent ? `Atual: ${cityLabel(bfsCurrent)}` : 'Aguardando avanço'}</span>
                   <span>{bfsResult ? `Passo ${progress.bfs} de ${bfsResult.visitedNodeIds.length}` : 'Desabilitado'}</span>
                 </div>
                 <div className="explorer-step-card dfs">
-                  <strong>DFS</strong>
+                  <strong>DFS (Busca em Profundidade)</strong>
                   <span>{dfsCurrent ? `Atual: ${cityLabel(dfsCurrent)}` : 'Aguardando avanço'}</span>
                   <span>{dfsResult ? `Passo ${progress.dfs} de ${dfsResult.visitedNodeIds.length}` : 'Desabilitado'}</span>
                 </div>
