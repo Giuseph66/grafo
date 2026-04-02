@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { compareTraversals } from '../analytics/comparison'
+import { GraphMap } from '../components/GraphMap'
 import { runTraversal } from '../graph/algorithms'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { mockPapers } from '../mocks/scholarData'
-import { formatMs, formatPayload } from '../utils/formatting'
 import type { AcademicGraph, GraphLink, GraphNode, PaperNode, TraversalResult } from '../types/domain'
 
 type FocusMode = 'sync' | 'bfs' | 'dfs'
@@ -215,9 +215,7 @@ function getAutocompleteSuffix(currentValue: string, suggestion: string) {
     : ''
 }
 
-function createCurvePath(source: { x: number; y: number }, target: { x: number; y: number }) {
-  return `M ${source.x} ${source.y} L ${target.x} ${target.y}`
-}
+// createCurvePath moved to GraphMap component
 
 function getSequenceClasses(index: number, progress: number) {
   if (index + 1 === progress) return 'is-active'
@@ -546,9 +544,9 @@ export function ExplorerPage() {
       : focusMode === 'dfs'
         ? dfsStepCount > 0 && progress.dfs >= dfsStepCount
         : bfsStepCount > 0 &&
-          dfsStepCount > 0 &&
-          progress.bfs >= bfsStepCount &&
-          progress.dfs >= dfsStepCount
+        dfsStepCount > 0 &&
+        progress.bfs >= bfsStepCount &&
+        progress.dfs >= dfsStepCount
   const showNoResultsAlert = hasInputQuery && hasTraversalStarted && hasCompletedActiveTraversal && !hasKnownQueryMatch
   const hasActiveQuery = enableVisualSearch && debouncedQuery.trim().length > 0
   const hasTraversalResults = Boolean(bfsResult || dfsResult)
@@ -803,97 +801,30 @@ export function ExplorerPage() {
           </section>
 
           <section className="explorer-graph-grid">
-            <article className="explorer-panel explorer-graph-panel">
-              <div className="explorer-panel-header">
-                <div>
-                  <p className="explorer-kicker">Grafo</p>
-                  <h2>Malha completa de cidades</h2>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <div className="explorer-legend">
-                    <label className="explorer-toggle explorer-header-toggle">
-                      <input
-                        type="checkbox"
-                        checked={showOnlyLatestPath}
-                        onChange={(event) => setShowOnlyLatestPath(event.target.checked)}
-                      />
-                      Apenas ultimos caminho
-                    </label>
-                    <span className="explorer-legend-item city">Cidade</span>
-                    <span className="explorer-legend-item root">Raiz</span>
-                    <span className="explorer-legend-item match">Busca</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`explorer-graph-canvas ${isGraphMaximized ? 'is-maximized' : ''}`}>
-                {isGraphMaximized && (
-                  <button
-                    type="button"
-                    className="explorer-button ghost explorer-restore-btn-absolute"
-                    onClick={() => setIsGraphMaximized(false)}
-                    title="Restaurar visualização normal"
-                  >
-                    ⤓ Restaurar
-                  </button>
-                )}
-                <svg className="explorer-graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                  {graph.links.map((link) => {
-                    const source = dynamicPositions[link.source]
-                    const target = dynamicPositions[link.target]
-                    if (!source || !target) {
-                      return null
-                    }
-
-                    const isActive = activeEdgeIds.has(link.id)
-                    const isSearchRelated =
-                      matched.has(link.source) ||
-                      matched.has(link.target) ||
-                      searchState.currentId === link.source ||
-                      searchState.currentId === link.target
-                    return (
-                      <path
-                        key={link.id}
-                        d={createCurvePath(source, target)}
-                        className={`explorer-edge ${isActive ? 'active' : ''} ${isSearchRelated ? 'search-related' : ''}`}
-                      />
-                    )
-                  })}
-                </svg>
-
-                {graph.nodes.map((node) => {
-                  const position = dynamicPositions[node.id]
-                  if (!position) {
-                    return null
-                  }
-                  const cityNode = node as PaperNode
-
-                  const classNames = ['explorer-node']
-                  if (node.id === effectiveRootCityId) classNames.push('is-root')
-                  if (inspected.has(node.id)) classNames.push('is-inspected')
-                  if (matched.has(node.id)) classNames.push('is-match')
-                  if (searchState.currentId === node.id) classNames.push('is-searching')
-                  if (bfsHighlightedNodes.has(node.id)) classNames.push('is-bfs-visited')
-                  if (dfsHighlightedNodes.has(node.id)) classNames.push('is-dfs-visited')
-                  if (enableBfs && bfsCurrent === node.id) classNames.push('is-bfs-current')
-                  if (enableDfs && dfsCurrent === node.id) classNames.push('is-dfs-current')
-
-                  return (
-                    <button
-                      key={node.id}
-                      type="button"
-                      className={classNames.join(' ')}
-                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
-                      onClick={() => setRootCityId(node.id)}
-                    >
-                      {enableBfs && bfsVisited.has(node.id) && <span className="explorer-node-badge bfs">{bfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
-                      {enableDfs && dfsVisited.has(node.id) && <span className="explorer-node-badge dfs">{dfsResult?.visitedNodeIds.indexOf(node.id)! + 1}</span>}
-                      <span className="explorer-node-label">{cityNode.title}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </article>
+            <GraphMap
+              graph={graph}
+              dynamicPositions={dynamicPositions}
+              effectiveRootCityId={effectiveRootCityId}
+              onSelectCity={setRootCityId}
+              activeEdgeIds={activeEdgeIds}
+              inspectedIds={inspected}
+              matchedIds={matched}
+              searchingId={searchState.currentId}
+              enableBfs={enableBfs}
+              enableDfs={enableDfs}
+              bfsHighlightedNodes={bfsHighlightedNodes}
+              dfsHighlightedNodes={dfsHighlightedNodes}
+              bfsCurrent={bfsCurrent}
+              dfsCurrent={dfsCurrent}
+              bfsVisited={bfsVisited}
+              dfsVisited={dfsVisited}
+              bfsVisitOrder={bfsResult?.visitedNodeIds ?? []}
+              dfsVisitOrder={dfsResult?.visitedNodeIds ?? []}
+              isMaximized={isGraphMaximized}
+              onRestore={() => setIsGraphMaximized(false)}
+              showOnlyLatestPath={showOnlyLatestPath}
+              onToggleShowOnlyLatestPath={setShowOnlyLatestPath}
+            />
 
             <article className="explorer-panel explorer-graph-panel">
               <div className="explorer-panel-header">
